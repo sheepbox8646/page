@@ -72,6 +72,10 @@ describe('personal landing page', () => {
     expect(indexHtml).toContain('name="theme-color" content="#f4f8fc"')
   })
 
+  it('uses the proportion-corrected square favicon', () => {
+    expect(indexHtml).toContain('type="image/png" href="/favicon.png"')
+  })
+
   it('uses a compact layout without glow or gradient dividers', () => {
     expect(styles).not.toContain('radial-gradient')
     expect(styles).not.toContain('linear-gradient')
