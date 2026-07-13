@@ -11,7 +11,7 @@
 
       <div class="intro">
         <h1 id="profile-name">Acbox</h1>
-        <p>📦神秘纸箱 · Developer · 希望能成为一个幸福的孩子</p>
+        <p>Developer · Open Source · 小箱子</p>
       </div>
 
       <nav class="social-links" aria-label="社交链接">
