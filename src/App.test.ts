@@ -1,24 +1,63 @@
-import { mount } from '@vue/test-utils'
-import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory } from 'vue-router'
 
 import App from './App.vue'
+import { createAppRouter } from './router'
+import { clearGitHubRepositoryCache } from './services/github'
 
-const styles = readFileSync('src/style.css', 'utf8')
-const indexHtml = readFileSync('index.html', 'utf8')
+function githubResponse(stargazersCount = 0, archived = false) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      stargazers_count: stargazersCount,
+      archived,
+    }),
+  } as Response
+}
 
-describe('personal landing page', () => {
-  it('introduces Acbox with the requested description', () => {
-    const wrapper = mount(App)
+async function mountAt(path: string) {
+  const router = createAppRouter(createMemoryHistory())
+  await router.push(path)
+  await router.isReady()
 
-    expect(wrapper.get('h1').text()).toBe('Acbox')
-    expect(wrapper.text()).toContain(
-      '📦神秘纸箱 · Developer · 希望能成为一个幸福的孩子',
-    )
+  const wrapper = mount(App, {
+    global: {
+      plugins: [router],
+    },
   })
 
-  it('renders the requested social destinations', () => {
-    const wrapper = mount(App)
+  return { router, wrapper }
+}
+
+describe('personal site', () => {
+  beforeEach(() => {
+    clearGitHubRepositoryCache()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(githubResponse()))
+  })
+
+  it('renders the centered text navigation and personal profile', async () => {
+    const { wrapper } = await mountAt('/')
+    const links = wrapper.findAll('.site-nav a')
+
+    expect(links.map((link) => link.text())).toEqual([
+      'Me',
+      'Projects',
+      '留言板',
+    ])
+    expect(links.map((link) => link.attributes('href'))).toEqual([
+      '/',
+      '/projects',
+      '/guestbook',
+    ])
+    expect(wrapper.get('h1').text()).toBe('Acbox')
+    expect(wrapper.text()).toContain('Developer · Open Source · 小箱子')
+    expect(document.title).toBe('Acbox')
+  })
+
+  it('keeps the requested social destinations', async () => {
+    const { wrapper } = await mountAt('/')
 
     expect(wrapper.get('[aria-label="GitHub"]').attributes('href')).toBe(
       'https://github.com/sheepbox8646',
@@ -29,60 +68,48 @@ describe('personal landing page', () => {
     expect(wrapper.get('[aria-label="Telegram"]').attributes('href')).toBe(
       'https://t.me/acboxawa',
     )
-  })
-
-  it('links the email icon to the requested address', () => {
-    const wrapper = mount(App)
-    const email = wrapper.get('[aria-label="Email"]')
-
-    expect(email.element.tagName).toBe('A')
-    expect(email.attributes('href')).toBe('mailto:me@ac.box')
-    expect(email.attributes('data-tooltip')).toBe('me@ac.box')
-  })
-
-  it('uses a shadow-free design and only recolors social icons on hover', () => {
-    expect(styles).not.toContain('box-shadow:')
-    expect(styles).toContain('transition: color 160ms ease;')
-    expect(styles).not.toContain('translateY')
-    expect(styles).not.toContain('background: rgba(228, 167, 42')
-  })
-
-  it('gives every platform icon its own brand color', () => {
-    const wrapper = mount(App)
-
-    expect(wrapper.get('[aria-label="GitHub"]').classes()).toContain(
-      'social-github',
+    expect(wrapper.get('[aria-label="Email"]').attributes('href')).toBe(
+      'mailto:me@ac.box',
     )
-    expect(wrapper.get('[aria-label="X"]').classes()).toContain('social-x')
-    expect(wrapper.get('[aria-label="Telegram"]').classes()).toContain(
-      'social-telegram',
-    )
-    expect(wrapper.get('[aria-label="Email"]').classes()).toContain(
-      'social-email',
-    )
-    expect(styles).toContain('color: #64727e;')
-    expect(styles).toContain('color: #5b6873;')
-    expect(styles).toContain('color: #6c9fb3;')
-    expect(styles).toContain('color: #83939f;')
   })
 
-  it('uses a near-white blue theme throughout the page', () => {
-    expect(styles).toContain('background: #f4f8fc;')
-    expect(styles).not.toContain('#fff7df')
-    expect(indexHtml).toContain('name="theme-color" content="#f4f8fc"')
+  it('navigates between the projects and guestbook pages', async () => {
+    const { router, wrapper } = await mountAt('/')
+
+    await router.push('/projects')
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('Projects')
+    expect(document.title).toBe('Projects · Acbox')
+
+    await router.push('/guestbook')
+    await flushPromises()
+    expect(wrapper.get('h1').text()).toBe('留言板')
+    expect(document.title).toBe('留言板 · Acbox')
   })
 
-  it('uses the proportion-corrected square favicon', () => {
-    expect(indexHtml).toContain('type="image/png" href="/favicon.png"')
+  it('redirects unknown routes to the personal profile', async () => {
+    const { router, wrapper } = await mountAt('/missing-page')
+
+    expect(router.currentRoute.value.fullPath).toBe('/')
+    expect(wrapper.get('h1').text()).toBe('Acbox')
   })
 
-  it('uses a compact layout without glow or gradient dividers', () => {
-    expect(styles).not.toContain('radial-gradient')
-    expect(styles).not.toContain('linear-gradient')
-    expect(styles).toContain('font-size: clamp(1.7rem, 4.5vw, 2rem);')
-    expect(styles).toContain('font-size: clamp(0.84rem, 2.2vw, 0.95rem);')
-    expect(styles).toContain('gap: 2px;')
-    expect(styles).toContain('width: 20px;')
-    expect(styles).toContain('height: 20px;')
+  it('renders both project categories and their initial projects', async () => {
+    const { wrapper } = await mountAt('/projects')
+    await flushPromises()
+
+    expect(
+      wrapper.findAll('.project-category h2').map((node) => node.text()),
+    ).toEqual(['Current Focused', 'AI', 'Others'])
+    expect(wrapper.findAll('.project-card h3').map((node) => node.text())).toEqual([
+      'Memoh',
+      'Oh My GitHub',
+      'ChatTutor',
+      'Memoh',
+      'Twilight AI',
+      'VueMotion',
+    ])
+    expect(wrapper.findAll('.project-deprecated')).toHaveLength(2)
+    expect(wrapper.findAll('.project-logo img')).toHaveLength(6)
   })
 })
